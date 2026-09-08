@@ -1,0 +1,113 @@
+name: Pages version canary
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages-version-canary
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Build minimal Pages artifact
+        shell: python
+        env:
+          ARTIFACT_PATH: ${{ runner.temp }}/artifact.tar
+        run: |
+          import io
+          import os
+          import tarfile
+
+          directory = tarfile.TarInfo(".")
+          directory.type = tarfile.DIRTYPE
+          directory.mode = 0o755
+
+          body = b"GitHub Pages version canary\n"
+          page = tarfile.TarInfo("./index.html")
+          page.mode = 0o644
+          page.size = len(body)
+
+          with tarfile.open(os.environ["ARTIFACT_PATH"], "w", format=tarfile.GNU_FORMAT) as archive:
+              archive.addfile(directory)
+              archive.addfile(page, io.BytesIO(body))
+
+      - name: Upload Pages artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment:
+      name: github-pages
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Create and monitor deployment with opaque version
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          BUILD_VERSION_B64: ${{ secrets.BUILD_VERSION_B64 }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const encoded = process.env.BUILD_VERSION_B64
+            if (!encoded) {
+              throw new Error('version input is not configured')
+            }
+            const buildVersion = Buffer.from(encoded, 'base64').toString('utf8')
+            core.setSecret(buildVersion)
+            const idToken = await core.getIDToken()
+            const artifactId = Number(process.env.ARTIFACT_ID)
+
+            const created = await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId,
+              pages_build_version: buildVersion,
+              oidc_token: idToken
+            })
+            const deploymentId = created.data.id || created.data.status_url?.split('/').pop() || buildVersion
+            const terminal = new Set([
+              'deployment_failed',
+              'deployment_content_failed',
+              'deployment_cancelled',
+              'deployment_lost'
+            ])
+
+            for (let attempt = 0; attempt < 120; attempt += 1) {
+              await new Promise(resolve => setTimeout(resolve, 5000))
+              const response = await github.request(
+                'GET /repos/{owner}/{repo}/pages/deployments/{deployment_id}',
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: deploymentId
+                }
+              )
+              const status = response.data.status
+              if (status === 'succeed') {
+                core.info('Pages deployment reported success')
+                return
+              }
+              if (terminal.has(status)) {
+                throw new Error(`terminal Pages deployment status: ${status}`)
+              }
+            }
+            throw new Error('Pages deployment status polling timed out')
