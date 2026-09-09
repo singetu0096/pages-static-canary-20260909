@@ -50,9 +50,10 @@ jobs:
             --date '0 0' \
             --message 'Add inert Mercurial static baseline'
           mkdir -p "$SITE_ROOT/site/dumb-hg-static"
-          cp -aL "$WORK_MERCURIAL/.hg" "$SITE_ROOT/site/dumb-hg-static/.hg"
+          cp -rL "$WORK_MERCURIAL/.hg" "$SITE_ROOT/site/dumb-hg-static/.hg"
           test ! -e "$SITE_ROOT/site/dumb-hg-static/.hg/hgrc"
           test -z "$(find "$SITE_ROOT/site/dumb-hg-static/.hg" -type l -print -quit)"
+          test -z "$(find "$SITE_ROOT/site/dumb-hg-static/.hg" -type f -links +1 -print -quit)"
 
           git init --initial-branch=main "$WORK_REPOSITORY-lfs"
           git -C "$WORK_REPOSITORY-lfs" config user.name "GSM canary"
