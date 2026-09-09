@@ -94,6 +94,20 @@ jobs:
           git --git-dir="$SITE_ROOT/site/dumb-pull-ref" repack -ad
           git --git-dir="$SITE_ROOT/site/dumb-pull-ref" update-server-info
 
+          git init --initial-branch=main "$WORK_REPOSITORY-ref-shell"
+          git -C "$WORK_REPOSITORY-ref-shell" config user.name "GSM canary"
+          git -C "$WORK_REPOSITORY-ref-shell" config user.email "gsm-canary@example.invalid"
+          printf '%s\n' 'GSM_REFNAME_SHELL_CANARY_SOURCE_20260909' > "$WORK_REPOSITORY-ref-shell/marker.txt"
+          git -C "$WORK_REPOSITORY-ref-shell" add marker.txt
+          git -C "$WORK_REPOSITORY-ref-shell" commit -m 'Add inert refname shell canary source marker'
+          git clone --bare "$WORK_REPOSITORY-ref-shell" "$SITE_ROOT/site/dumb-pull-ref-shell-canary"
+          shell_canary_commit=$(git --git-dir="$SITE_ROOT/site/dumb-pull-ref-shell-canary" rev-parse refs/heads/main)
+          shell_canary_ref='refs/pull/125/$(git${IFS}--git-dir=${GITHUB_WORKSPACE}/git-data/source.git${IFS}update-ref${IFS}refs/heads/GSM_RCE_MARKER_20260909${IFS}'"$shell_canary_commit"')'
+          git check-ref-format "$shell_canary_ref"
+          git --git-dir="$SITE_ROOT/site/dumb-pull-ref-shell-canary" update-ref "$shell_canary_ref" "$shell_canary_commit"
+          git --git-dir="$SITE_ROOT/site/dumb-pull-ref-shell-canary" repack -ad
+          git --git-dir="$SITE_ROOT/site/dumb-pull-ref-shell-canary" update-server-info
+
           tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
 
       - name: Upload Pages artifact
