@@ -1,0 +1,64 @@
+name: GSM dumb HTTP Git baseline
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: gsm-dumb-http-git
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Build an inert bare repository and Pages artifact
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ runner.temp }}/artifact.tar
+          WORK_REPOSITORY: ${{ runner.temp }}/gsm-work
+          SITE_ROOT: ${{ runner.temp }}/site
+        run: |
+          set -euo pipefail
+
+          git init --initial-branch=main "$WORK_REPOSITORY"
+          git -C "$WORK_REPOSITORY" config user.name "GSM canary"
+          git -C "$WORK_REPOSITORY" config user.email "gsm-canary@example.invalid"
+          printf '%s\n' 'GSM_DUMB_HTTP_BASELINE_20260909' > "$WORK_REPOSITORY/marker.txt"
+          git -C "$WORK_REPOSITORY" add marker.txt
+          git -C "$WORK_REPOSITORY" commit -m 'Add inert GSM parser marker'
+
+          mkdir -p "$SITE_ROOT/site"
+          printf '%s\n' 'GitHub Pages GSM dumb HTTP baseline' > "$SITE_ROOT/site/index.html"
+          git clone --bare "$WORK_REPOSITORY" "$SITE_ROOT/site/dumb-git"
+          git --git-dir="$SITE_ROOT/site/dumb-git" repack -ad
+          git --git-dir="$SITE_ROOT/site/dumb-git" update-server-info
+
+          tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
