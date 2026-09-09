@@ -290,6 +290,39 @@ jobs:
           git --git-dir="$large_path_repository" repack -ad
           git --git-dir="$large_path_repository" update-server-info
 
+          # The primary repository intentionally omits every object and borrows
+          # them from a second static repository on this same user-owned Pages
+          # origin.  A successful import therefore proves that the importer's
+          # Git configuration follows objects/info/http-alternates; failure is
+          # the expected result with Git's default followRedirects=initial.
+          alternate_work="$WORK_REPOSITORY-http-alternate"
+          alternate_store="$SITE_ROOT/site/dumb-http-alternate-store"
+          alternate_primary="$SITE_ROOT/site/dumb-http-alternate-primary"
+          git init --initial-branch=main "$alternate_work"
+          git -C "$alternate_work" config user.name "GSM canary"
+          git -C "$alternate_work" config user.email "gsm-canary@example.invalid"
+          printf '%s\n' 'GSM_HTTP_ALTERNATE_BASELINE_20260910' > "$alternate_work/marker.txt"
+          git -C "$alternate_work" add marker.txt
+          git -C "$alternate_work" commit -m 'Add inert HTTP alternate marker'
+          alternate_commit=$(git -C "$alternate_work" rev-parse HEAD)
+
+          git clone --bare "$alternate_work" "$alternate_store"
+          git --git-dir="$alternate_store" repack -ad
+          git --git-dir="$alternate_store" update-server-info
+
+          git init --bare "$alternate_primary"
+          git --git-dir="$alternate_primary" symbolic-ref HEAD refs/heads/main
+          mkdir -p "$alternate_primary/refs/heads" "$alternate_primary/info" "$alternate_primary/objects/info"
+          printf '%s\n' "$alternate_commit" > "$alternate_primary/refs/heads/main"
+          printf '%s\trefs/heads/main\n' "$alternate_commit" > "$alternate_primary/info/refs"
+          : > "$alternate_primary/objects/info/packs"
+          printf '%s\n' \
+            'https://singetu0096.github.io/pages-static-canary-20260909/site/dumb-http-alternate-store/objects' \
+            > "$alternate_primary/objects/info/http-alternates"
+
+          test ! -e "$alternate_primary/objects/${alternate_commit:0:2}/${alternate_commit:2}"
+          test -n "$(find "$alternate_store/objects" -type f -print -quit)"
+
           tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
 
       - name: Upload Pages artifact
