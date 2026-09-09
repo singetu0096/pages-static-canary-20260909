@@ -156,6 +156,63 @@ jobs:
           git --git-dir="$tree_path_repository" repack -ad
           git --git-dir="$tree_path_repository" update-server-info
 
+          metadata_repository="$SITE_ROOT/site/dumb-metadata-canary"
+          git init --bare "$metadata_repository"
+          metadata_tree=$(printf '' | git --git-dir="$metadata_repository" hash-object -t tree -w --stdin)
+          metadata_baseline_commit=$(
+            printf '%s\n' 'GSM metadata baseline' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
+              git --git-dir="$metadata_repository" commit-tree "$metadata_tree"
+          )
+          metadata_shell_command='git${IFS}--git-dir=${GITHUB_WORKSPACE}/git-data/source.git${IFS}update-ref${IFS}refs/heads/GSM_META_RCE_MARKER_20260909${IFS}'"$metadata_baseline_commit"
+          metadata_dollar_canary='$('"$metadata_shell_command"')'
+          metadata_backtick_canary='`'"$metadata_shell_command"'`'
+          metadata_commit=$(
+            TREE="$metadata_tree" \
+              PARENT="$metadata_baseline_commit" \
+              DOLLAR_CANARY="$metadata_dollar_canary" \
+              BACKTICK_CANARY="$metadata_backtick_canary" \
+              perl -e '
+                print "tree $ENV{TREE}\n";
+                print "parent $ENV{PARENT}\n";
+                print "author GSM $ENV{DOLLAR_CANARY} <gsm-$ENV{DOLLAR_CANARY}\@example.invalid> 0 +0000\n";
+                print "committer GSM $ENV{BACKTICK_CANARY} <gsm-$ENV{BACKTICK_CANARY}\@example.invalid> 0 +0000\n";
+                print "encoding UTF-8\n\n";
+                print "GSM metadata parser canary\n";
+                print "$ENV{DOLLAR_CANARY}\n";
+                print "single-quote breaker: '\'';$ENV{DOLLAR_CANARY};#\n";
+                print qq{double-quote breaker: \"$ENV{DOLLAR_CANARY}\"\n};
+                print "$ENV{BACKTICK_CANARY}\n";
+              ' |
+              git --git-dir="$metadata_repository" hash-object --literally -t commit -w --stdin
+          )
+          metadata_tag=$(
+            OBJECT="$metadata_commit" \
+              DOLLAR_CANARY="$metadata_dollar_canary" \
+              BACKTICK_CANARY="$metadata_backtick_canary" \
+              perl -e '
+                print "object $ENV{OBJECT}\n";
+                print "type commit\n";
+                print "tag gsm-metadata-canary\n";
+                print "tagger GSM $ENV{DOLLAR_CANARY} <gsm-$ENV{DOLLAR_CANARY}\@example.invalid> 0 +0000\n\n";
+                print "GSM annotated tag metadata canary\n";
+                print "$ENV{DOLLAR_CANARY}\n$ENV{BACKTICK_CANARY}\n";
+              ' |
+              git --git-dir="$metadata_repository" hash-object --literally -t tag -w --stdin
+          )
+          git --git-dir="$metadata_repository" update-ref refs/heads/main "$metadata_commit"
+          git --git-dir="$metadata_repository" update-ref refs/tags/gsm-metadata-canary "$metadata_tag"
+          git --git-dir="$metadata_repository" symbolic-ref HEAD refs/heads/main
+          git --git-dir="$metadata_repository" fsck --strict
+          test -z "$(git --git-dir="$metadata_repository" for-each-ref --format='%(refname)' refs/heads/GSM_META_RCE_MARKER_20260909)"
+          git --git-dir="$metadata_repository" repack -ad
+          git --git-dir="$metadata_repository" update-server-info
+
           tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
 
       - name: Upload Pages artifact
