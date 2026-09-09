@@ -78,7 +78,7 @@ jobs:
           git -C "$WORK_REPOSITORY-broken-ref" commit -m 'Add broken-ref baseline marker'
           git clone --bare "$WORK_REPOSITORY-broken-ref" "$SITE_ROOT/site/dumb-broken-ref"
           broken_blob=$(printf '%s\n' 'GSM_BLOB_AS_BRANCH_20260909' | git --git-dir="$SITE_ROOT/site/dumb-broken-ref" hash-object -t blob -w --stdin)
-          git --git-dir="$SITE_ROOT/site/dumb-broken-ref" update-ref refs/heads/broken-blob "$broken_blob"
+          printf '%s\n' "$broken_blob" > "$SITE_ROOT/site/dumb-broken-ref/refs/heads/broken-blob"
           git --git-dir="$SITE_ROOT/site/dumb-broken-ref" repack -ad
           git --git-dir="$SITE_ROOT/site/dumb-broken-ref" update-server-info
 
