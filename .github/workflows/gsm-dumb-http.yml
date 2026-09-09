@@ -38,6 +38,26 @@ jobs:
           git --git-dir="$SITE_ROOT/site/dumb-git" repack -ad
           git --git-dir="$SITE_ROOT/site/dumb-git" update-server-info
 
+          git init --initial-branch=main "$WORK_REPOSITORY-lfs"
+          git -C "$WORK_REPOSITORY-lfs" config user.name "GSM canary"
+          git -C "$WORK_REPOSITORY-lfs" config user.email "gsm-canary@example.invalid"
+          printf '%s\n' '*.bin filter=lfs diff=lfs merge=lfs -text' > "$WORK_REPOSITORY-lfs/.gitattributes"
+          cat > "$WORK_REPOSITORY-lfs/.lfsconfig" <<'EOF'
+          [lfs]
+            url = https://singetu0096.github.io/pages-static-canary-20260909/site/lfs-probe
+          EOF
+          cat > "$WORK_REPOSITORY-lfs/probe.bin" <<'EOF'
+          version https://git-lfs.github.com/spec/v1
+          oid sha256:efd28e97fbe142528b8dc64764645f76be50721c20d254c36b6badbf47a5a43e
+          size 29
+          EOF
+          printf '%s\n' 'GSM_LFS_DISCOVERY_PROBE_20260909' > "$WORK_REPOSITORY-lfs/marker.txt"
+          git -C "$WORK_REPOSITORY-lfs" add .gitattributes .lfsconfig probe.bin marker.txt
+          git -C "$WORK_REPOSITORY-lfs" commit -m 'Add inert LFS discovery probe'
+          git clone --bare "$WORK_REPOSITORY-lfs" "$SITE_ROOT/site/dumb-lfs-probe"
+          git --git-dir="$SITE_ROOT/site/dumb-lfs-probe" repack -ad
+          git --git-dir="$SITE_ROOT/site/dumb-lfs-probe" update-server-info
+
           tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
 
       - name: Upload Pages artifact
