@@ -20,6 +20,7 @@ jobs:
         shell: bash
         env:
           ARTIFACT_PATH: ${{ runner.temp }}/artifact.tar
+          WORK_MERCURIAL: ${{ runner.temp }}/gsm-hg-work
           WORK_REPOSITORY: ${{ runner.temp }}/gsm-work
           SITE_ROOT: ${{ runner.temp }}/site
         run: |
@@ -37,6 +38,20 @@ jobs:
           git clone --bare "$WORK_REPOSITORY" "$SITE_ROOT/site/dumb-git"
           git --git-dir="$SITE_ROOT/site/dumb-git" repack -ad
           git --git-dir="$SITE_ROOT/site/dumb-git" update-server-info
+
+          HGRCPATH= hg \
+            --config format.use-share-safe=false \
+            --config format.revlog-compression=zlib \
+            init "$WORK_MERCURIAL"
+          printf '%s\n' 'GSM_MERCURIAL_STATIC_BASELINE_20260909' > "$WORK_MERCURIAL/marker.txt"
+          HGRCPATH= hg --cwd "$WORK_MERCURIAL" add marker.txt
+          HGRCPATH= hg --cwd "$WORK_MERCURIAL" commit \
+            --user 'GSM canary <gsm-canary@example.invalid>' \
+            --date '0 0' \
+            --message 'Add inert Mercurial static baseline'
+          mkdir -p "$SITE_ROOT/site/dumb-hg-static"
+          cp -a "$WORK_MERCURIAL/.hg" "$SITE_ROOT/site/dumb-hg-static/.hg"
+          test ! -e "$SITE_ROOT/site/dumb-hg-static/.hg/hgrc"
 
           git init --initial-branch=main "$WORK_REPOSITORY-lfs"
           git -C "$WORK_REPOSITORY-lfs" config user.name "GSM canary"
