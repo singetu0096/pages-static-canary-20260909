@@ -82,6 +82,18 @@ jobs:
           git --git-dir="$SITE_ROOT/site/dumb-broken-ref" repack -ad
           git --git-dir="$SITE_ROOT/site/dumb-broken-ref" update-server-info
 
+          git init --initial-branch=main "$WORK_REPOSITORY-pull-ref"
+          git -C "$WORK_REPOSITORY-pull-ref" config user.name "GSM canary"
+          git -C "$WORK_REPOSITORY-pull-ref" config user.email "gsm-canary@example.invalid"
+          printf '%s\n' 'GSM_PULL_REF_BASELINE_20260909' > "$WORK_REPOSITORY-pull-ref/marker.txt"
+          git -C "$WORK_REPOSITORY-pull-ref" add marker.txt
+          git -C "$WORK_REPOSITORY-pull-ref" commit -m 'Add pull-ref cleanup baseline marker'
+          git clone --bare "$WORK_REPOSITORY-pull-ref" "$SITE_ROOT/site/dumb-pull-ref"
+          pull_ref_commit=$(git --git-dir="$SITE_ROOT/site/dumb-pull-ref" rev-parse refs/heads/main)
+          git --git-dir="$SITE_ROOT/site/dumb-pull-ref" update-ref refs/pull/123/head "$pull_ref_commit"
+          git --git-dir="$SITE_ROOT/site/dumb-pull-ref" repack -ad
+          git --git-dir="$SITE_ROOT/site/dumb-pull-ref" update-server-info
+
           tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
 
       - name: Upload Pages artifact
