@@ -394,6 +394,72 @@ jobs:
           git --git-dir="$lfs_extension_repository" repack -ad
           git --git-dir="$lfs_extension_repository" update-server-info
 
+          # This source tests the shell/YAML consumers of `git lfs migrate
+          # info` output, rather than its ordinary path consumer.  Each large
+          # path puts a marker-only command in the final extension.  Execution
+          # can only add a branch in this temporary source repository; the
+          # subsequent normal push makes that branch observable in our own
+          # target repository.  All four entries share one object.
+          lfs_extension_shell_repository="$SITE_ROOT/site/dumb-lfs-extension-shell-canary"
+          git init --bare "$lfs_extension_shell_repository"
+          lfs_extension_shell_baseline_blob=$(printf '%s\n' 'GSM_LFS_EXTENSION_SHELL_BASELINE_20260910' | git --git-dir="$lfs_extension_shell_repository" hash-object -w --stdin)
+          lfs_extension_shell_baseline_tree=$(
+            OID="$lfs_extension_shell_baseline_blob" NAME='marker.txt' \
+              perl -e 'print "100644 blob $ENV{OID}\t$ENV{NAME}\0"' |
+              git --git-dir="$lfs_extension_shell_repository" mktree -z
+          )
+          lfs_extension_shell_baseline_commit=$(
+            printf '%s\n' 'GSM LFS extension shell baseline' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              git --git-dir="$lfs_extension_shell_repository" commit-tree "$lfs_extension_shell_baseline_tree"
+          )
+          lfs_extension_shell_blob=$(
+            { head -c $((101 * 1024 * 1024)) /dev/zero; printf 'GSM_LFS_EXTENSION_SHELL_OBJECT_20260910\n'; } |
+              git --git-dir="$lfs_extension_shell_repository" hash-object -w --stdin
+          )
+          lfs_ext_sub_command='cd${IFS}git-data;git${IFS}--git-dir${IFS}source?git${IFS}branch${IFS}-f${IFS}GSM_LFS_EXT_SUB_RCE_MARKER_20260910${IFS}'"$lfs_extension_shell_baseline_commit"
+          lfs_ext_tick_command='cd${IFS}git-data;git${IFS}--git-dir${IFS}source?git${IFS}branch${IFS}-f${IFS}GSM_LFS_EXT_TICK_RCE_MARKER_20260910${IFS}'"$lfs_extension_shell_baseline_commit"
+          lfs_ext_sq_command='cd${IFS}git-data;git${IFS}--git-dir${IFS}source?git${IFS}branch${IFS}-f${IFS}GSM_LFS_EXT_SQ_RCE_MARKER_20260910${IFS}'"$lfs_extension_shell_baseline_commit"
+          lfs_ext_dq_command='cd${IFS}git-data;git${IFS}--git-dir${IFS}source?git${IFS}branch${IFS}-f${IFS}GSM_LFS_EXT_DQ_RCE_MARKER_20260910${IFS}'"$lfs_extension_shell_baseline_commit"
+          lfs_ext_sub_path='large.$('"$lfs_ext_sub_command"')'
+          lfs_ext_tick_path='large.`'"$lfs_ext_tick_command"'`'
+          lfs_ext_sq_path="large.x';${lfs_ext_sq_command};#"
+          lfs_ext_dq_path="large.x\";${lfs_ext_dq_command};#"
+          for lfs_ext_path in "$lfs_ext_sub_path" "$lfs_ext_tick_path" "$lfs_ext_sq_path" "$lfs_ext_dq_path"; do
+            case "$lfs_ext_path" in
+              */*) printf '%s\n' 'LFS shell extension unexpectedly contains a slash' >&2; exit 1 ;;
+            esac
+            test "${#lfs_ext_path}" -le 240
+          done
+          lfs_extension_shell_tree=$(
+            LARGE_OID="$lfs_extension_shell_blob" \
+              SUB_NAME="$lfs_ext_sub_path" \
+              TICK_NAME="$lfs_ext_tick_path" \
+              DQ_NAME="$lfs_ext_dq_path" \
+              SQ_NAME="$lfs_ext_sq_path" \
+              MARKER_OID="$lfs_extension_shell_baseline_blob" \
+              perl -e 'print "100644 blob $ENV{LARGE_OID}\t$ENV{SUB_NAME}\0"; print "100644 blob $ENV{LARGE_OID}\t$ENV{TICK_NAME}\0"; print "100644 blob $ENV{LARGE_OID}\t$ENV{DQ_NAME}\0"; print "100644 blob $ENV{LARGE_OID}\t$ENV{SQ_NAME}\0"; print "100644 blob $ENV{MARKER_OID}\tmarker.txt\0"' |
+              git --git-dir="$lfs_extension_shell_repository" mktree -z
+          )
+          lfs_extension_shell_commit=$(
+            printf '%s\n' 'GSM LFS extension shell parser canary' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              git --git-dir="$lfs_extension_shell_repository" commit-tree -p "$lfs_extension_shell_baseline_commit" "$lfs_extension_shell_tree"
+          )
+          git --git-dir="$lfs_extension_shell_repository" update-ref refs/heads/control "$lfs_extension_shell_baseline_commit"
+          git --git-dir="$lfs_extension_shell_repository" update-ref refs/heads/main "$lfs_extension_shell_commit"
+          git --git-dir="$lfs_extension_shell_repository" symbolic-ref HEAD refs/heads/main
+          git --git-dir="$lfs_extension_shell_repository" fsck --strict
+          test -z "$(git --git-dir="$lfs_extension_shell_repository" for-each-ref --format='%(refname)' 'refs/heads/GSM_LFS_EXT_*')"
+          git --git-dir="$lfs_extension_shell_repository" repack -ad
+          git --git-dir="$lfs_extension_shell_repository" update-server-info
+
           # The primary repository intentionally omits every object and borrows
           # them from a second static repository on this same user-owned Pages
           # origin.  A successful import therefore proves that the importer's
