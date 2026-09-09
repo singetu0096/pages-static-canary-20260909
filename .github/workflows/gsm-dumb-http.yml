@@ -290,6 +290,58 @@ jobs:
           git --git-dir="$large_path_repository" repack -ad
           git --git-dir="$large_path_repository" update-server-info
 
+          # This source checks whether the large-file scanner writes an
+          # attacker-controlled path to stdout without neutralising GitHub
+          # Actions workflow commands.  The commands are intentionally inert:
+          # one notice annotation and one uniquely named, unused step output.
+          # No command execution, secret access, or network callback occurs.
+          large_newline_repository="$SITE_ROOT/site/dumb-large-newline-command-canary"
+          git init --bare "$large_newline_repository"
+          large_newline_baseline_blob=$(printf '%s\n' 'GSM_LARGE_NEWLINE_BASELINE_20260910' | git --git-dir="$large_newline_repository" hash-object -w --stdin)
+          large_newline_baseline_tree=$(
+            OID="$large_newline_baseline_blob" NAME='marker.txt' \
+              perl -e 'print "100644 blob $ENV{OID}\t$ENV{NAME}\0"' |
+              git --git-dir="$large_newline_repository" mktree -z
+          )
+          large_newline_baseline_commit=$(
+            printf '%s\n' 'GSM large newline baseline' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              git --git-dir="$large_newline_repository" commit-tree "$large_newline_baseline_tree"
+          )
+          large_newline_blob=$(
+            { head -c $((101 * 1024 * 1024)) /dev/zero; printf 'GSM_LARGE_NEWLINE_OBJECT_20260910\n'; } |
+              git --git-dir="$large_newline_repository" hash-object -w --stdin
+          )
+          large_newline_path=$'large-prefix.bin\n::notice title=GSM_LARGE_NEWLINE_STDOUT_20260910::GSM_LARGE_NEWLINE_STDOUT_20260910\n::set-output name=gsm_large_newline_probe::GSM_LARGE_NEWLINE_STDOUT_20260910\nlarge-suffix.bin'
+          case "$large_newline_path" in
+            */*) printf '%s\n' 'large-newline path unexpectedly contains a slash' >&2; exit 1 ;;
+          esac
+          test "${#large_newline_path}" -le 240
+          large_newline_tree=$(
+            LARGE_OID="$large_newline_blob" \
+              LARGE_NAME="$large_newline_path" \
+              MARKER_OID="$large_newline_baseline_blob" \
+              perl -e 'print "100644 blob $ENV{LARGE_OID}\t$ENV{LARGE_NAME}\0"; print "100644 blob $ENV{MARKER_OID}\tmarker.txt\0"' |
+              git --git-dir="$large_newline_repository" mktree -z
+          )
+          large_newline_commit=$(
+            printf '%s\n' 'GSM large newline workflow-command canary' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              git --git-dir="$large_newline_repository" commit-tree -p "$large_newline_baseline_commit" "$large_newline_tree"
+          )
+          git --git-dir="$large_newline_repository" update-ref refs/heads/control "$large_newline_baseline_commit"
+          git --git-dir="$large_newline_repository" update-ref refs/heads/main "$large_newline_commit"
+          git --git-dir="$large_newline_repository" symbolic-ref HEAD refs/heads/main
+          git --git-dir="$large_newline_repository" fsck --strict
+          git --git-dir="$large_newline_repository" repack -ad
+          git --git-dir="$large_newline_repository" update-server-info
+
           # The primary repository intentionally omits every object and borrows
           # them from a second static repository on this same user-owned Pages
           # origin.  A successful import therefore proves that the importer's
