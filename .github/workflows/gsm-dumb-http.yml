@@ -58,6 +58,18 @@ jobs:
           git --git-dir="$SITE_ROOT/site/dumb-lfs-probe" repack -ad
           git --git-dir="$SITE_ROOT/site/dumb-lfs-probe" update-server-info
 
+          malformed_repository="$SITE_ROOT/site/dumb-malformed-commit"
+          git init --bare "$malformed_repository"
+          empty_tree=$(printf '' | git --git-dir="$malformed_repository" hash-object -t tree -w --stdin)
+          malformed_commit=$(
+            printf 'tree %s\ncommitter GSM canary <gsm-canary@example.invalid> 0 +0000\n\nGSM_MISSING_AUTHOR_PROBE_20260909\n' "$empty_tree" |
+              git --git-dir="$malformed_repository" hash-object --literally -t commit -w --stdin
+          )
+          git --git-dir="$malformed_repository" update-ref refs/heads/main "$malformed_commit"
+          git --git-dir="$malformed_repository" symbolic-ref HEAD refs/heads/main
+          git --git-dir="$malformed_repository" repack -ad
+          git --git-dir="$malformed_repository" update-server-info
+
           tar -C "$SITE_ROOT" -cf "$ARTIFACT_PATH" site
 
       - name: Upload Pages artifact
