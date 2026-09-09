@@ -342,6 +342,58 @@ jobs:
           git --git-dir="$large_newline_repository" repack -ad
           git --git-dir="$large_newline_repository" update-server-info
 
+          # Git LFS `migrate info` groups objects by their final extension and
+          # currently writes that extension to stdout verbatim.  This source
+          # places inert workflow-command diagnostics in that extension.  If
+          # the runner processes them, the deprecated set-env command either
+          # fails safely or sets an otherwise unused marker variable.
+          lfs_extension_repository="$SITE_ROOT/site/dumb-lfs-extension-command-canary"
+          git init --bare "$lfs_extension_repository"
+          lfs_extension_baseline_blob=$(printf '%s\n' 'GSM_LFS_EXTENSION_BASELINE_20260910' | git --git-dir="$lfs_extension_repository" hash-object -w --stdin)
+          lfs_extension_baseline_tree=$(
+            OID="$lfs_extension_baseline_blob" NAME='marker.txt' \
+              perl -e 'print "100644 blob $ENV{OID}\t$ENV{NAME}\0"' |
+              git --git-dir="$lfs_extension_repository" mktree -z
+          )
+          lfs_extension_baseline_commit=$(
+            printf '%s\n' 'GSM LFS extension baseline' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              git --git-dir="$lfs_extension_repository" commit-tree "$lfs_extension_baseline_tree"
+          )
+          lfs_extension_blob=$(
+            { head -c $((101 * 1024 * 1024)) /dev/zero; printf 'GSM_LFS_EXTENSION_OBJECT_20260910\n'; } |
+              git --git-dir="$lfs_extension_repository" hash-object -w --stdin
+          )
+          lfs_extension_path=$'large.gsm-extension-probe\n::notice title=GSM_LFS_EXTENSION_STDOUT_20260910::GSM_LFS_EXTENSION_STDOUT_20260910\n::set-env name=GSM_LFS_EXTENSION_ENV_CANARY::GSM_LFS_EXTENSION_ENV_CANARY'
+          case "$lfs_extension_path" in
+            */*) printf '%s\n' 'LFS extension path unexpectedly contains a slash' >&2; exit 1 ;;
+          esac
+          test "${#lfs_extension_path}" -le 240
+          lfs_extension_tree=$(
+            LARGE_OID="$lfs_extension_blob" \
+              LARGE_NAME="$lfs_extension_path" \
+              MARKER_OID="$lfs_extension_baseline_blob" \
+              perl -e 'print "100644 blob $ENV{LARGE_OID}\t$ENV{LARGE_NAME}\0"; print "100644 blob $ENV{MARKER_OID}\tmarker.txt\0"' |
+              git --git-dir="$lfs_extension_repository" mktree -z
+          )
+          lfs_extension_commit=$(
+            printf '%s\n' 'GSM LFS extension workflow-command canary' |
+              GIT_AUTHOR_NAME='GSM canary' \
+              GIT_AUTHOR_EMAIL='gsm-canary@example.invalid' \
+              GIT_COMMITTER_NAME='GSM canary' \
+              GIT_COMMITTER_EMAIL='gsm-canary@example.invalid' \
+              git --git-dir="$lfs_extension_repository" commit-tree -p "$lfs_extension_baseline_commit" "$lfs_extension_tree"
+          )
+          git --git-dir="$lfs_extension_repository" update-ref refs/heads/control "$lfs_extension_baseline_commit"
+          git --git-dir="$lfs_extension_repository" update-ref refs/heads/main "$lfs_extension_commit"
+          git --git-dir="$lfs_extension_repository" symbolic-ref HEAD refs/heads/main
+          git --git-dir="$lfs_extension_repository" fsck --strict
+          git --git-dir="$lfs_extension_repository" repack -ad
+          git --git-dir="$lfs_extension_repository" update-server-info
+
           # The primary repository intentionally omits every object and borrows
           # them from a second static repository on this same user-owned Pages
           # origin.  A successful import therefore proves that the importer's
