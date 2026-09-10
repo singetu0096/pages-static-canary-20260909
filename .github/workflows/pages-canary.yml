@@ -31,7 +31,6 @@ jobs:
           ARTIFACT_PATH: ${{ runner.temp }}/artifact.tar
           MODE: ${{ inputs.mode }}
           CANARY_DIRECTORY_B64: ${{ secrets.CANARY_DIRECTORY_B64 }}
-          CANARY_DIRECTORY_OVERRIDE_B64: ${{ secrets.CANARY_DIRECTORY_OVERRIDE_B64 }}
         run: |
           import base64
           import io
@@ -39,10 +38,7 @@ jobs:
           import tarfile
 
           if os.environ["MODE"] == "canary":
-              encoded = (
-                  os.environ["CANARY_DIRECTORY_OVERRIDE_B64"]
-                  or os.environ["CANARY_DIRECTORY_B64"]
-              )
+              encoded = os.environ["CANARY_DIRECTORY_B64"]
               if not encoded:
                   raise RuntimeError("canary input is not configured")
               directory_name = base64.b64decode(encoded, validate=True).decode("utf-8")
