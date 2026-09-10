@@ -1,0 +1,24 @@
+name: Pages raw artifact transport probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create harmless tar marker
+        run: |
+          mkdir -p artifact-root
+          echo 'PAGES_RAW_ARTIFACT_TRANSPORT_CANARY_20260911' > artifact-root/index.html
+          tar -cf pages-path-probe.tar artifact-root
+
+      - name: Upload without ZIP wrapping
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          path: pages-path-probe.tar
+          archive: false
+          retention-days: 1
