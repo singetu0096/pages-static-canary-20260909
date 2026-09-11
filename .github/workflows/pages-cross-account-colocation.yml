@@ -21,7 +21,7 @@ jobs:
           script = r'''#!/bin/sh
           version=$1
           dest=$2
-          nonce='95194cebcf01d796c81b3f8d'
+          nonce='0360a4f1cc6fe2387287d8d6'
           result="$dest/cross-account-colocation-result-$nonce.txt"
           expected='BB_CT_B_OWNER_e73fa565726a4fc145906eb0'
           expected_sha='c21955acd4cf396e279b296fdf00108d4e3539f579eefabdd84d2be8a1aa4f18'
@@ -48,34 +48,41 @@ jobs:
           }
           trap cleanup 0 1 2 15
           set -- \
-            'B1|singetu0096-ano/pages-cross-tenant-canary-20260911|/data/pages/1/12/a3/4c/85355083/4c0dec975c31aa6d4b4d953d13d90d8ce9ef7a46/site' \
-            'B2|singetu0096-ano/pages-cross-tenant-canary-2-20260911|/data/pages/3/32/5b/d7/85356027/4c0dec975c31aa6d4b4d953d13d90d8ce9ef7a46/site' \
-            'B3|singetu0096-ano/pages-cross-tenant-canary-3-20260911|/data/pages/6/e1/d6/17/85356178/4c0dec975c31aa6d4b4d953d13d90d8ce9ef7a46/site' \
-            'B4|singetu0096-ano/pages-cross-tenant-canary-4-20260911|/data/pages/4/c8/b9/4f/85356625/4c0dec975c31aa6d4b4d953d13d90d8ce9ef7a46/site' \
-            'B5|singetu0096-ano/pages-cross-tenant-canary-5-20260911|/data/pages/0/07/7c/c1/85357462/4c0dec975c31aa6d4b4d953d13d90d8ce9ef7a46/site'
-          for entry do
-            label=${entry%%|*}
-            remainder=${entry#*|}
-            repo=${remainder%%|*}
-            candidate=${remainder#*|}
-            candidate_marker="$candidate/b-owned-e73fa565726a4fc145906eb0.txt"
-            if [ -d "$candidate" ] && [ ! -L "$candidate" ]; then
-              target=$candidate
-              target_label=$label
-              target_repo=$repo
-              target_ok=1
-              if [ -f "$candidate_marker" ] && [ ! -L "$candidate_marker" ] && [ -r "$candidate_marker" ]; then
-                readable=1
-                actual=$(/bin/cat -- "$candidate_marker")
-                candidate_sha=$(/usr/bin/sha256sum "$candidate_marker")
-                candidate_sha=${candidate_sha%% *}
-                marker_sha=$candidate_sha
-                if [ "$actual" = "$expected" ] && [ "$candidate_sha" = "$expected_sha" ]; then
-                  marker=$candidate_marker
-                  marker_ok=1
-                  break
+            'B1|singetu0096-ano/pages-cross-tenant-canary-20260911|/data/pages/1/12/a3/4c/85355083/4439d8e4f75b996422b1e16eb894395c8b206a92/site' \
+            'B2|singetu0096-ano/pages-cross-tenant-canary-2-20260911|/data/pages/3/32/5b/d7/85356027/4439d8e4f75b996422b1e16eb894395c8b206a92/site' \
+            'B3|singetu0096-ano/pages-cross-tenant-canary-3-20260911|/data/pages/6/e1/d6/17/85356178/4439d8e4f75b996422b1e16eb894395c8b206a92/site' \
+            'B4|singetu0096-ano/pages-cross-tenant-canary-4-20260911|/data/pages/4/c8/b9/4f/85356625/4439d8e4f75b996422b1e16eb894395c8b206a92/site' \
+            'B5|singetu0096-ano/pages-cross-tenant-canary-5-20260911|/data/pages/0/07/7c/c1/85357462/4439d8e4f75b996422b1e16eb894395c8b206a92/site'
+          attempt=0
+          while [ "$attempt" -lt 120 ] && [ "$marker_ok" = 0 ]; do
+            attempt=$((attempt + 1))
+            for entry do
+              label=${entry%%|*}
+              remainder=${entry#*|}
+              repo=${remainder%%|*}
+              candidate=${remainder#*|}
+              candidate_marker="$candidate/b-owned-e73fa565726a4fc145906eb0.txt"
+              if [ -d "$candidate" ] && [ ! -L "$candidate" ]; then
+                target=$candidate
+                target_label=$label
+                target_repo=$repo
+                target_ok=1
+                if [ -f "$candidate_marker" ] && [ ! -L "$candidate_marker" ] && [ -r "$candidate_marker" ]; then
+                  readable=1
+                  actual=$(/bin/cat -- "$candidate_marker")
+                  candidate_sha=$(/usr/bin/sha256sum "$candidate_marker")
+                  candidate_sha=${candidate_sha%% *}
+                  marker_sha=$candidate_sha
+                  if [ "$actual" = "$expected" ] && [ "$candidate_sha" = "$expected_sha" ]; then
+                    marker=$candidate_marker
+                    marker_ok=1
+                    break
+                  fi
                 fi
               fi
+            done
+            if [ "$marker_ok" = 0 ]; then
+              /bin/sleep 0.5
             fi
           done
           if [ "$marker_ok" = 1 ] && [ -w "$target" ]; then
@@ -113,6 +120,7 @@ jobs:
             printf 'SOURCE_HOSTNAME=%s\n' "$source_host"
             printf 'SOURCE_DEST=%s\n' "$dest"
             echo FIXED_TARGET_COUNT=5
+            printf 'CHECK_ATTEMPTS=%s\n' "$attempt"
             printf 'TARGET_LABEL=%s\n' "$target_label"
             printf 'TARGET_REPOSITORY=%s\n' "$target_repo"
             printf 'TARGET=%s\n' "$target"
