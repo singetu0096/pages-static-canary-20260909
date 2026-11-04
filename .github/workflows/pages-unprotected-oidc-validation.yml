@@ -1,0 +1,49 @@
+name: Pages unprotected OIDC validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-without-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit an existing inert Pages artifact
+        env:
+          ARTIFACT_ID: "13310740775"
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          token_response="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Fgithub.com%2Fsingetu0096")"
+          oidc_token="$(jq -er '.value' <<<"${token_response}")"
+          request_body="$(jq -n \
+            --argjson artifact_id "${ARTIFACT_ID}" \
+            --arg pages_build_version "${GITHUB_SHA}" \
+            --arg oidc_token "${oidc_token}" \
+            '{artifact_id:$artifact_id,pages_build_version:$pages_build_version,oidc_token:$oidc_token}')"
+          started_epoch="$(date +%s)"
+          http_status="$(curl --silent --show-error \
+            --output response.json \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --header 'Content-Type: application/json' \
+            --data "${request_body}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/deployments")"
+          elapsed_seconds="$(($(date +%s) - started_epoch))"
+          unset oidc_token token_response request_body
+          jq -c '{status_url,page_url,preview_url,message,status}' response.json
+          echo "HTTP_STATUS=${http_status}"
+          echo "ELAPSED_SECONDS=${elapsed_seconds}"
+          echo "JOB_ENVIRONMENT_CLAIM_EXPECTED=absent"
+          test "${http_status}" = "200"
