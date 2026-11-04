@@ -1,0 +1,5 @@
+theme: null
+title: Owned Launch boundary canary
+description: Bounded same-account cross-repository authorization validation
+kramdown:
+  input: ../../../../../../../../github/workspace/kramdown_input_canary
