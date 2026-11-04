@@ -1,0 +1,110 @@
+name: Pages Launch URL owner-boundary oracle
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_artifact_url_b64:
+        description: Base64 URL from the owned private organization fixture
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+
+jobs:
+  compare-url-exchange-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Create source positive-control artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          printf '%s\n' 'PAGES_LAUNCH_SOURCE_CONTROL_20261104_81CE55A0' > site/index.html
+
+      - name: Upload source Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+          retention-days: 1
+
+      - name: Compare URL-exchange authorization stages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_ARTIFACT_URL_B64: ${{ inputs.target_artifact_url_b64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "${ACTIONS_RUNTIME_URL:-}"
+          test -n "${ACTIONS_RUNTIME_TOKEN:-}"
+
+          endpoint="${ACTIONS_RUNTIME_URL}_apis/pipelines/workflows/${GITHUB_RUN_ID}/artifacts?api-version=6.0-preview"
+          response="$(curl --fail --silent --show-error \
+            --max-time 20 \
+            --header "Authorization: Bearer ${ACTIONS_RUNTIME_TOKEN}" \
+            --header 'Accept: application/json' \
+            "${endpoint}")"
+          source_raw_url="$(jq -er '.value[] | select(.name == "github-pages") | .url' <<<"${response}" | head -n 1)"
+          source_artifact_url="${source_raw_url}&%24expand=SignedContent"
+          target_artifact_url="$(printf '%s' "${TARGET_ARTIFACT_URL_B64}" | base64 -d)"
+
+          SOURCE_URL="${source_artifact_url}" TARGET_URL="${target_artifact_url}" python3 - <<'PY'
+          import os
+          import re
+          import urllib.parse
+
+          for key in ("SOURCE_URL", "TARGET_URL"):
+              parsed = urllib.parse.urlsplit(os.environ[key])
+              if parsed.scheme != "https":
+                  raise SystemExit(f"{key}: unexpected scheme")
+              if not (parsed.hostname or "").endswith(".actions.githubusercontent.com"):
+                  raise SystemExit(f"{key}: unexpected host")
+              if not re.search(r"/_apis/pipelines/\d+/runs/\d+/artifacts$", parsed.path):
+                  raise SystemExit(f"{key}: unexpected path")
+          PY
+
+          probe_url() {
+            local artifact_url="$1"
+            local payload combined http_status response_body message stage
+            payload="$(jq -nc \
+              --arg artifact_url "${artifact_url}" \
+              --arg pages_build_version "${GITHUB_SHA}" \
+              --arg oidc_token 'invalid.fixed.boundary.canary' \
+              '{artifact_url:$artifact_url,pages_build_version:$pages_build_version,oidc_token:$oidc_token}')"
+            combined="$(curl --silent --show-error \
+              --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --header 'Content-Type: application/json' \
+              --data "${payload}" \
+              --write-out $'\n%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/deployment")"
+            http_status="${combined##*$'\n'}"
+            response_body="${combined%$'\n'*}"
+            message="$(jq -r '.message // ""' <<<"${response_body}" 2>/dev/null || true)"
+            if [[ "${message}" == *'Invalid actions OIDC token'* ]]; then
+              stage='oidc'
+            elif [[ "${message}" == *'Invalid artifact url'* ]]; then
+              stage='artifact_url'
+            elif [[ "${message}" == *'Invalid artifact URL'* ]]; then
+              stage='artifact_url'
+            else
+              stage='other'
+            fi
+            jq -nc --arg status "${http_status}" --arg stage "${stage}" '{status:($status|tonumber),stage:$stage}'
+            unset payload combined response_body message
+          }
+
+          source_result="$(probe_url "${source_artifact_url}")"
+          target_result="$(probe_url "${target_artifact_url}")"
+          result="$(jq -nc \
+            --argjson source "${source_result}" \
+            --argjson target "${target_result}" \
+            '{source_control:$source,private_org_target:$target}')"
+          printf 'BOUNDARY_RESULT=%s\n' "${result}"
+          unset response source_raw_url source_artifact_url target_artifact_url source_result target_result result
