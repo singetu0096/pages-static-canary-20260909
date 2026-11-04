@@ -1,5 +1,0 @@
-theme: null
-title: Owned Launch redirect boundary canary
-description: Bounded same-account repository redirect authorization validation
-kramdown:
-  input: ../../../../../../../../github/workspace/launch_redirect_canary
