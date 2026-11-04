@@ -1,0 +1,14 @@
+name: Launch redirect prewarm control
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-public-action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve and execute inert owned action
+        uses: singetu0096/actions-launch-redirect-origin-20261104@3640e0d3ebb210fff3f776b9e37977686645589e
