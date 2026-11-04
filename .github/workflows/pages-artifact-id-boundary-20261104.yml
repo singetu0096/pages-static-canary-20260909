@@ -1,0 +1,112 @@
+name: Pages artifact ID owner-boundary oracle
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_artifact_id:
+        description: Artifact ID from the owned private organization fixture
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+
+jobs:
+  compare-artifact-id-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Create fixed source marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          printf '%s\n' 'PAGES_ARTIFACT_ID_SOURCE_CONTROL_20261104_51C8BE40' > site/index.html
+
+      - name: Upload current source Pages artifact
+        id: upload
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+          retention-days: 1
+
+      - name: Compare artifact-ID validation stages
+        uses: actions/github-script@v8
+        env:
+          SOURCE_ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+          TARGET_ARTIFACT_ID: ${{ inputs.target_artifact_id }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const sourceArtifactId = Number(process.env.SOURCE_ARTIFACT_ID || '')
+            const targetArtifactId = Number(process.env.TARGET_ARTIFACT_ID || '')
+            if (!Number.isSafeInteger(sourceArtifactId) || sourceArtifactId <= 0) {
+              throw new Error('invalid source artifact identifier')
+            }
+            if (!Number.isSafeInteger(targetArtifactId) || targetArtifactId <= 0) {
+              throw new Error('invalid target artifact identifier')
+            }
+
+            async function cancelUnexpectedDeployment(response) {
+              const data = response && response.data ? response.data : {}
+              let deploymentId = data.id
+              if (!deploymentId && typeof data.status_url === 'string') {
+                deploymentId = data.status_url.split('/').pop()
+              }
+              if (!deploymentId) {
+                return false
+              }
+              try {
+                await github.request('PUT /repos/{owner}/{repo}/pages/deployment/cancel/{deployment_id}', {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: deploymentId,
+                  headers: {
+                    accept: 'application/vnd.github+json',
+                    'X-GitHub-Api-Version': '2022-11-28'
+                  }
+                })
+                return true
+              } catch (error) {
+                return false
+              }
+            }
+
+            async function probe(artifactId) {
+              try {
+                const response = await github.request('POST /repos/{owner}/{repo}/pages/deployment', {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifactId,
+                  pages_build_version: context.sha,
+                  oidc_token: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.e30.AA',
+                  headers: {
+                    accept: 'application/vnd.github+json',
+                    'X-GitHub-Api-Version': '2022-11-28'
+                  }
+                })
+                const cancelled = await cancelUnexpectedDeployment(response)
+                return {status: Number(response.status || 200), stage: 'unexpected_success', cancelled}
+              } catch (error) {
+                const status = Number(error.status || (error.response && error.response.status) || 0)
+                const message = String(
+                  (error.response && error.response.data && error.response.data.message) ||
+                  error.message ||
+                  ''
+                )
+                let stage = 'other'
+                if (/Invalid actions OIDC token/i.test(message)) {
+                  stage = 'oidc'
+                } else if (/Unable to find artifact|Invalid artifact id|Artifact type is not supported/i.test(message)) {
+                  stage = 'artifact_id'
+                }
+                return {status, stage}
+              }
+            }
+
+            const result = {
+              source_control: await probe(sourceArtifactId),
+              private_org_target: await probe(targetArtifactId)
+            }
+            core.info('ARTIFACT_ID_BOUNDARY_RESULT=' + JSON.stringify(result))
