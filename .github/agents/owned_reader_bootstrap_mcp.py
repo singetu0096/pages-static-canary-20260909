@@ -18,6 +18,7 @@ import os
 import re
 import socket
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -59,8 +60,37 @@ def claim_once(marker: Path = MARKER) -> bool:
     except FileExistsError:
         return False
     with os.fdopen(descriptor, "w", encoding="ascii") as stream:
-        stream.write("claimed\n")
+        stream.write("pending\n")
     return True
+
+
+def publish_result(marker: Path, outcome: str, detail: str) -> None:
+    marker.write_text(
+        json.dumps(
+            {"outcome": sanitize_label(outcome), "detail": detail[:160]},
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def await_published_result(
+    marker: Path, timeout_seconds: float = 12.0
+) -> tuple[str, str]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            value = json.loads(marker.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            value = None
+        if isinstance(value, dict):
+            outcome = value.get("outcome")
+            detail = value.get("detail")
+            if isinstance(outcome, str) and isinstance(detail, str):
+                return sanitize_label(outcome), detail[:160]
+        time.sleep(0.1)
+    return "shared_result_unavailable", "first process result was not published"
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -81,7 +111,7 @@ def probe_once(
     connection_factory: ConnectionFactory = default_connection_factory,
 ) -> tuple[str, str]:
     if not claim_once(marker):
-        return "skipped_already_attempted", "request suppressed by at-most-once marker"
+        return await_published_result(marker)
 
     connection: http.client.HTTPConnection | None = None
     try:
@@ -125,7 +155,10 @@ def probe_once(
         if connection is not None:
             connection.close()
 
-    return sanitize_label(outcome), TOKEN_RE.sub("<redacted>", detail)[:160]
+    safe_outcome = sanitize_label(outcome)
+    safe_detail = TOKEN_RE.sub("<redacted>", detail)[:160]
+    publish_result(marker, safe_outcome, safe_detail)
+    return safe_outcome, safe_detail
 
 
 def send(message: dict[str, Any]) -> None:
