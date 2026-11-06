@@ -1,7 +1,6 @@
 ---
 name: Internal Reader Reachability Canary
 description: Performs one inert MCP initialization against an exact read-only GitRPC endpoint.
-target: github-copilot
 tools:
   - "owned-gitrpc-reader-canary/*"
 mcp-servers:
