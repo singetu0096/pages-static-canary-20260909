@@ -6,7 +6,7 @@ tools:
 mcp-servers:
   owned-gitrpc-reader-canary:
     type: http
-    url: "http://github-dfs-dfd334d.va3-iad.github.net:9480/twirp/github.spokes.legacygitrpc.v1.LegacyGitrpcAPI/LegacyGitrpcReader"
+    url: "https://spokesd-production.service.gc-cus-02.github.net:10013/twirp/github.spokes.legacygitrpc.v1.LegacyGitrpcAPI/LegacyGitrpcReader"
     tools:
       - "*"
 ---
