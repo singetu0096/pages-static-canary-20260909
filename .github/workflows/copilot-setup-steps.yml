@@ -1,0 +1,53 @@
+name: Copilot Setup Job GET Boundary Canary
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Fixed current-job authenticated GET boundary check
+        shell: bash
+        env:
+          GHBB_API_TOKEN: >-
+            ${{ secrets[format('{0}{1}{2}', 'GITHUB_', 'COPILOT_', 'API_TOKEN')] }}
+        run: |
+          set -euo pipefail
+          callback_base='https://api.individual.githubcopilot.com/agents/swe/agent'
+
+          present() {
+            if [ -n "$1" ]; then printf 'true'; else printf 'false'; fi
+          }
+
+          job_id="$(jq -r '.inputs.COPILOT_AGENT_INPUTS | fromjson | .COPILOT_AGENT_JOB_ID // empty' "$GITHUB_EVENT_PATH")"
+          nonce="$(jq -r '.inputs.COPILOT_AGENT_INPUTS | fromjson | .COPILOT_JOB_NONCE // empty' "$GITHUB_EVENT_PATH")"
+          api_token_present="$(present "$GHBB_API_TOKEN")"
+          nonce_present="$(present "$nonce")"
+          job_id_valid='false'
+          job_get_http='not_attempted'
+
+          if [[ "$job_id" =~ ^168708449-1361558563-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            job_id_valid='true'
+          fi
+
+          if [ "$api_token_present" = 'true' ] && [ "$nonce_present" = 'true' ] && [ "$job_id_valid" = 'true' ]; then
+            job_get_http="$(curl --silent --show-error --output /dev/null \
+              --write-out '%{http_code}' --connect-timeout 5 --max-time 12 \
+              --proto '=https' --tlsv1.2 \
+              --header 'Accept: application/json' \
+              --header "Authorization: Bearer $GHBB_API_TOKEN" \
+              --header "X-GitHub-Job-Nonce: $nonce" \
+              --user-agent 'singetu0096-owned-copilot-setup-job-get/1.0' \
+              "$callback_base/jobs/$job_id" || true)"
+            case "$job_get_http" in
+              [0-9][0-9][0-9]) ;;
+              *) job_get_http='transport_error' ;;
+            esac
+          fi
+
+          unset GHBB_API_TOKEN nonce job_id
+          printf 'GHBB_SETUP_JOB_GET_V1 api_token_present=%s job_id_valid=%s nonce_present=%s job_get_http=%s\n' \
+            "$api_token_present" "$job_id_valid" "$nonce_present" "$job_get_http"
