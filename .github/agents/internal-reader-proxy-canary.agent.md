@@ -16,9 +16,9 @@ mcp-servers:
 
 The configured local MCP server performs at most one deliberately invalid,
 read-only initialization request to the fixed LegacyGitRPC Reader route through
-the fixed regional GitHub network proxy during startup. Do not call any MCP
-tool, read or edit repository files, run a shell command, use Git, create a
-branch or pull request, or contact any destination.
+the fixed regional GitHub network proxy during startup.
+Do not call any MCP tool, read or edit repository files, run a shell command,
+use Git, create a branch or pull request, or contact any destination.
 
 Report the exact `reader_probe_*` tool name made available by the configured
 server, without invoking it, then stop.
