@@ -1,4 +1,4 @@
-name: Hidden GHAS Detector Source Boundary Canary
+name: Hidden GHAS Settings Context Canary
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ jobs:
     permissions: {}
     timeout-minutes: 5
     steps:
-      - name: Extract bounded static context for detector resolution
+      - name: Extract bounded static contexts for caller-controlled settings
         shell: bash
         run: |
           set -euo pipefail
@@ -17,17 +17,20 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
 
-          const needle = 'No detectors resolved for code scanning input';
+          const needles = [
+            ['setting_warning', 'does not exist and will be ignored'],
+            ['cross_repo', 'enableCrossRepoContext'],
+            ['plugin_build', 'reviewPluginBuild'],
+            ['detector_launch', 'Running detector:'],
+          ];
           const root = process.env.RUNNER_TEMP;
           const maximumFiles = 6000;
           const maximumMapBytes = 50 * 1024 * 1024;
-          const maximumContextBytes = 8000;
+          const maximumContextBytesEach = 5000;
+          const maximumPayloadBytes = 26000;
           let visited = 0;
-          let sourceMapFound = false;
-          let sourcePath = '';
-          let context = '';
-
           const files = [];
+
           const walk = (directory, depth) => {
             if (depth > 10 || visited >= maximumFiles) return;
             let entries = [];
@@ -46,6 +49,7 @@ jobs:
           };
           walk(root, 0);
 
+          const mapSources = [];
           for (const candidate of files.filter((item) => item.endsWith('.map'))) {
             let stat;
             try { stat = fs.statSync(candidate); } catch (_) { continue; }
@@ -54,42 +58,58 @@ jobs:
             try { map = JSON.parse(fs.readFileSync(candidate, 'utf8')); } catch (_) { continue; }
             if (!Array.isArray(map.sources) || !Array.isArray(map.sourcesContent)) continue;
             for (let index = 0; index < map.sourcesContent.length; index += 1) {
-              const source = map.sourcesContent[index];
-              if (typeof source !== 'string') continue;
-              const offset = source.indexOf(needle);
-              if (offset < 0) continue;
-              sourceMapFound = true;
-              sourcePath = String(map.sources[index] || '').slice(0, 500);
-              const start = Math.max(0, offset - 3500);
-              const end = Math.min(source.length, offset + needle.length + 3500);
-              context = source.slice(start, end);
-              break;
-            }
-            if (context) break;
-          }
-
-          if (!context) {
-            for (const candidate of files.filter((item) => item.endsWith('autofind.js'))) {
-              let source = '';
-              try { source = fs.readFileSync(candidate, 'utf8'); } catch (_) { continue; }
-              const offset = source.indexOf(needle);
-              if (offset < 0) continue;
-              sourcePath = path.basename(candidate);
-              const start = Math.max(0, offset - 3500);
-              const end = Math.min(source.length, offset + needle.length + 3500);
-              context = source.slice(start, end);
-              break;
+              if (typeof map.sourcesContent[index] !== 'string') continue;
+              mapSources.push({
+                path: String(map.sources[index] || '').slice(0, 500),
+                source: map.sourcesContent[index],
+                sourceMap: true,
+              });
             }
           }
+          const staticSources = [];
+          for (const candidate of files.filter((item) => item.endsWith('autofind.js'))) {
+            try {
+              staticSources.push({
+                path: path.basename(candidate),
+                source: fs.readFileSync(candidate, 'utf8'),
+                sourceMap: false,
+              });
+            } catch (_) {}
+          }
 
-          const bounded = Buffer.from(context, 'utf8').subarray(0, maximumContextBytes);
-          const encode = (value) => Buffer.from(value, 'utf8').toString('base64url');
+          const contexts = [];
+          for (const [label, needle] of needles) {
+            let match = null;
+            for (const candidate of [...mapSources, ...staticSources]) {
+              const offset = candidate.source.indexOf(needle);
+              if (offset < 0) continue;
+              const start = Math.max(0, offset - 2400);
+              const end = Math.min(candidate.source.length, offset + needle.length + 2400);
+              const raw = Buffer.from(candidate.source.slice(start, end), 'utf8');
+              match = {
+                label,
+                needleFound: true,
+                sourceMap: candidate.sourceMap,
+                sourcePath: candidate.path,
+                context: raw.subarray(0, maximumContextBytesEach).toString('utf8'),
+              };
+              break;
+            }
+            contexts.push(match || {
+              label,
+              needleFound: false,
+              sourceMap: false,
+              sourcePath: '',
+              context: '',
+            });
+          }
+
+          const payload = Buffer.from(JSON.stringify({visited, contexts}), 'utf8');
+          if (payload.length > maximumPayloadBytes) {
+            throw new Error('bounded settings-context payload exceeded limit');
+          }
           console.log(
-            'GHBB_HIDDEN_GHAS_DETECTOR_SOURCE_V1' +
-            ` source_map_found=${String(sourceMapFound)}` +
-            ` needle_found=${String(context.includes(needle))}` +
-            ` visited_count=${visited}` +
-            ` source_path_b64=${encode(sourcePath) || '-'}` +
-            ` context_b64=${bounded.length ? bounded.toString('base64url') : '-'}`
+            'GHBB_HIDDEN_GHAS_SETTINGS_CONTEXT_V1' +
+            ` payload_b64=${payload.toString('base64url')}`
           );
           GHBB_NODE
