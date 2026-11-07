@@ -1,4 +1,4 @@
-name: Hidden GHAS Runtime Source Boundary Canary
+name: Hidden GHAS Detector Source Boundary Canary
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ jobs:
     permissions: {}
     timeout-minutes: 5
     steps:
-      - name: Extract bounded static context for the current runtime error
+      - name: Extract bounded static context for detector resolution
         shell: bash
         run: |
           set -euo pipefail
@@ -17,7 +17,7 @@ jobs:
           const fs = require('node:fs');
           const path = require('node:path');
 
-          const needle = 'Event identifiers payload not found';
+          const needle = 'No detectors resolved for code scanning input';
           const root = process.env.RUNNER_TEMP;
           const maximumFiles = 6000;
           const maximumMapBytes = 50 * 1024 * 1024;
@@ -85,7 +85,7 @@ jobs:
           const bounded = Buffer.from(context, 'utf8').subarray(0, maximumContextBytes);
           const encode = (value) => Buffer.from(value, 'utf8').toString('base64url');
           console.log(
-            'GHBB_HIDDEN_GHAS_RUNTIME_SOURCE_V1' +
+            'GHBB_HIDDEN_GHAS_DETECTOR_SOURCE_V1' +
             ` source_map_found=${String(sourceMapFound)}` +
             ` needle_found=${String(context.includes(needle))}` +
             ` visited_count=${visited}` +
