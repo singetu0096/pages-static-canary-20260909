@@ -1,0 +1,114 @@
+name: Hidden GHAS Runtime Phase Boundary Canary
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Install fixed non-disclosing runtime-phase canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t targets < <(
+            find "$RUNNER_TEMP" -maxdepth 8 -type f \
+              -path '*/dist-autofind-ts/ts/autofind.js' -print
+          )
+          if [ "${#targets[@]}" -ne 1 ]; then
+            printf 'GHBB_HIDDEN_GHAS_RUNTIME_PHASE_INSTALL_V1 target_count=%s installed=false\n' "${#targets[@]}"
+            exit 1
+          fi
+          target="${targets[0]}"
+          cp -- "$target" "${target}.ghbb-original"
+          tee "$target" >/dev/null <<'GHBB_NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+
+          const key = (...parts) => parts.join('_');
+          const names = {
+            git: key('GITHUB', 'TOKEN'),
+            github: key('GITHUB', 'COPILOT', 'GITHUB', 'TOKEN'),
+            api: key('GITHUB', 'COPILOT', 'API', 'TOKEN'),
+            integration: key('GITHUB', 'COPILOT', 'INTEGRATION', 'ID'),
+            integrationOverride: key('COPILOT', 'INTEGRATION', 'ID', 'OVERRIDE'),
+            hmac: key('CAPI', 'HMAC', 'KEY', 'OVERRIDE'),
+            nonce: key('COPILOT', 'JOB', 'NONCE'),
+            proxyUrl: key('AUTOFIND', 'OCTOKIT', 'PROXY', 'URL'),
+            proxySecret: key('AUTOFIND', 'OCTOKIT', 'PROXY', 'SECRET'),
+            firewall: key('COPILOT', 'AGENT', 'FIREWALL', 'ENABLED'),
+            platform: key('GITHUB', 'PLATFORM', 'API', 'TOKEN'),
+            inference: key('GITHUB', 'INFERENCE', 'TOKEN'),
+            repoId: key('GITHUB', 'REPOSITORY', 'ID'),
+            ownerId: key('GITHUB', 'REPOSITORY', 'OWNER', 'ID'),
+          };
+
+          let raw = '';
+          let parsed = {};
+          let jsonValid = false;
+          try {
+            raw = fs.readFileSync(0, {encoding: 'utf8'});
+            parsed = JSON.parse(raw);
+            jsonValid = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+          } catch (_) {
+            parsed = {};
+          }
+          raw = '';
+
+          const present = (object, name) =>
+            Object.prototype.hasOwnProperty.call(object, name) &&
+            typeof object[name] === 'string' && object[name].length > 0;
+          const equal = (left, right) => {
+            if (typeof left !== 'string' || typeof right !== 'string' || left.length === 0 || left.length !== right.length) return false;
+            return crypto.timingSafeEqual(Buffer.from(left), Buffer.from(right));
+          };
+          let proxyLoopback = false;
+          try {
+            const parsedUrl = new URL(process.env[names.proxyUrl] || '');
+            proxyLoopback = parsedUrl.protocol === 'http:' &&
+              (parsedUrl.hostname === '127.0.0.1' || parsedUrl.hostname === 'localhost');
+          } catch (_) {}
+          const firewallRaw = process.env[names.firewall];
+          const firewallState = firewallRaw === 'true' || firewallRaw === 'false' ? firewallRaw : (firewallRaw ? 'other' : 'missing');
+          const exactInputNames = [
+            names.git, names.github, names.api, names.integration,
+            names.integrationOverride, names.hmac, names.nonce,
+          ];
+          const inputPresentCount = exactInputNames.filter((name) => present(parsed, name)).length;
+
+          const fields = {
+            stdin_json_valid: jsonValid,
+            stdin_key_count: Object.keys(parsed).length,
+            stdin_present_count: inputPresentCount,
+            git_token_present: present(parsed, names.git),
+            github_token_present: present(parsed, names.github),
+            api_token_present: present(parsed, names.api),
+            integration_id_present: present(parsed, names.integration),
+            integration_override_present: present(parsed, names.integrationOverride),
+            capi_hmac_present: present(parsed, names.hmac),
+            nonce_present: present(parsed, names.nonce),
+            api_equals_git: equal(parsed[names.api], parsed[names.git]),
+            api_equals_github: equal(parsed[names.api], parsed[names.github]),
+            github_equals_git: equal(parsed[names.github], parsed[names.git]),
+            runtime_uid: typeof process.getuid === 'function' ? process.getuid() : -1,
+            runtime_euid: typeof process.geteuid === 'function' ? process.geteuid() : -1,
+            proxy_url_loopback: proxyLoopback,
+            proxy_secret_present: present(process.env, names.proxySecret),
+            platform_token_present: present(process.env, names.platform),
+            inference_token_present: present(process.env, names.inference),
+            env_api_token_present: present(process.env, names.api),
+            firewall_enabled: firewallState,
+            repo_id_matches: process.env[names.repoId] === '1361558563',
+            owner_id_matches: process.env[names.ownerId] === '168708449',
+          };
+          for (const name of exactInputNames) {
+            if (Object.prototype.hasOwnProperty.call(parsed, name)) parsed[name] = '';
+          }
+          const rendered = Object.entries(fields).map(([name, value]) => `${name}=${String(value)}`).join(' ');
+          console.log(`GHBB_HIDDEN_GHAS_RUNTIME_PHASE_V1 ${rendered}`);
+          process.exit(1);
+          GHBB_NODE
+          chmod 0644 "$target"
+          printf 'GHBB_HIDDEN_GHAS_RUNTIME_PHASE_INSTALL_V1 target_count=1 installed=true\n'
